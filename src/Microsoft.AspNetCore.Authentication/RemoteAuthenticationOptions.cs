@@ -67,8 +67,7 @@ namespace Microsoft.AspNetCore.Builder
         public bool SaveTokens { get; set; }
 
         /// <summary>
-        /// Defines whether correlation cookies are allowed to remain set (not deleted)
-        /// <see cref="Http.Authentication.AuthenticationProperties"/> after a successful authorization.
+        /// Defines whether correlation cookies remain after a successful authorization.
         /// This property is set to <c>false</c> by default to prevent the possibilty
         /// of a replay attack by reusing the nonce.
         /// </summary>
