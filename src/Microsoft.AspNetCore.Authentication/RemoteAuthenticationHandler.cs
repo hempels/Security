@@ -222,12 +222,15 @@ namespace Microsoft.AspNetCore.Authentication
                 return false;
             }
 
-            var cookieOptions = new CookieOptions
+            if (!Options.AllowReplay)
             {
-                HttpOnly = true,
-                Secure = Request.IsHttps
-            };
-            Response.Cookies.Delete(cookieName, cookieOptions);
+                var cookieOptions = new CookieOptions
+                {
+                    HttpOnly = true,
+                    Secure = Request.IsHttps
+                };
+                Response.Cookies.Delete(cookieName, cookieOptions);
+            }
 
             if (!string.Equals(correlationCookie, CorrelationMarker, StringComparison.Ordinal))
             {
