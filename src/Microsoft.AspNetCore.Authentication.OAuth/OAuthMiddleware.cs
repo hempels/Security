@@ -109,6 +109,11 @@ namespace Microsoft.AspNetCore.Authentication.OAuth
                 Options.StateDataFormat = new PropertiesDataFormat(dataProtector);
             }
 
+            if (Options.FailOnCorrelationIdValidation == null)
+            {
+                Options.FailOnCorrelationIdValidation = true;
+            }
+
             Backchannel = new HttpClient(Options.BackchannelHttpHandler ?? new HttpClientHandler());
             Backchannel.DefaultRequestHeaders.UserAgent.ParseAdd("Microsoft ASP.NET Core OAuth middleware");
             Backchannel.Timeout = Options.BackchannelTimeout;

@@ -64,7 +64,8 @@ namespace Microsoft.AspNetCore.Authentication.OAuth
             // OAuth2 10.12 CSRF
             if (!ValidateCorrelationId(properties))
             {
-                return AuthenticateResult.Fail("Correlation failed.");
+                if (Options.FailOnCorrelationIdValidation == true)
+                    return AuthenticateResult.Fail("Correlation failed.");
             }
 
             if (StringValues.IsNullOrEmpty(code))

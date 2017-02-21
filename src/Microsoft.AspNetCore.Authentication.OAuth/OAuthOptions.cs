@@ -64,5 +64,10 @@ namespace Microsoft.AspNetCore.Builder
         /// Gets or sets the type used to secure data handled by the middleware.
         /// </summary>
         public ISecureDataFormat<AuthenticationProperties> StateDataFormat { get; set; }
+
+        /// <summary>
+        /// Gets or sets whether failing correlation ID validation should fail auth.
+        /// </summary>
+        public bool? FailOnCorrelationIdValidation { get; set; }
     }
 }

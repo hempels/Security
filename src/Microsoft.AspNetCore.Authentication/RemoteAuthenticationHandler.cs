@@ -1,14 +1,15 @@
 // Copyright (c) .NET Foundation. All rights reserved.
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
-using System;
-using System.Security.Cryptography;
-using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Http.Features.Authentication;
 using Microsoft.AspNetCore.Http.Authentication;
+using Microsoft.AspNetCore.Http.Features.Authentication;
 using Microsoft.Extensions.Logging;
+using System;
+using System.Linq;
+using System.Security.Cryptography;
+using System.Threading.Tasks;
 
 namespace Microsoft.AspNetCore.Authentication
 {
@@ -217,7 +218,7 @@ namespace Microsoft.AspNetCore.Authentication
             var correlationCookie = Request.Cookies[cookieName];
             if (string.IsNullOrEmpty(correlationCookie))
             {
-                Logger.CorrelationCookieNotFound(cookieName);
+                Logger.CorrelationCookieNotFound(cookieName, Request.Cookies.Keys.Aggregate((a, b) => $"{a}, {b}"));
                 return false;
             }
 

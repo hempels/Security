@@ -21,7 +21,7 @@ namespace Microsoft.Extensions.Logging
         private static Action<ILogger, Exception> _signInHandled;
         private static Action<ILogger, Exception> _signInSkipped;
         private static Action<ILogger, string, Exception> _correlationPropertyNotFound;
-        private static Action<ILogger, string, Exception> _correlationCookieNotFound;
+        private static Action<ILogger, string, string, Exception> _correlationCookieNotFound;
         private static Action<ILogger, string, string, Exception> _unexpectedCorrelationCookieValue;
 
         static LoggingExtensions()
@@ -82,10 +82,10 @@ namespace Microsoft.Extensions.Logging
                 eventId: 14,
                 logLevel: LogLevel.Warning,
                 formatString: "{CorrelationProperty} state property not found.");
-            _correlationCookieNotFound = LoggerMessage.Define<string>(
+            _correlationCookieNotFound = LoggerMessage.Define<string, string>(
                 eventId: 15,
                 logLevel: LogLevel.Warning,
-                formatString: "'{CorrelationCookieName}' cookie not found.");
+                formatString: "'{CorrelationCookieName}' cookie not found. Did find: '{OtherCookieNames}'.");
             _unexpectedCorrelationCookieValue = LoggerMessage.Define<string, string>(
                eventId: 16,
                logLevel: LogLevel.Warning,
@@ -162,9 +162,9 @@ namespace Microsoft.Extensions.Logging
             _correlationPropertyNotFound(logger, correlationPrefix, null);
         }
 
-        public static void CorrelationCookieNotFound(this ILogger logger, string cookieName)
+        public static void CorrelationCookieNotFound(this ILogger logger, string cookieName, string cookies)
         {
-            _correlationCookieNotFound(logger, cookieName, null);
+            _correlationCookieNotFound(logger, cookieName, cookies, null);
         }
 
         public static void UnexpectedCorrelationCookieValue(this ILogger logger, string cookieName, string cookieValue)
