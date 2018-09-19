@@ -1,13 +1,15 @@
 // Copyright (c) .NET Foundation. All rights reserved.
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
-using Microsoft.AspNetCore.Authentication.Google;
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.OAuth;
 using Microsoft.AspNetCore.Http;
 
-namespace Microsoft.AspNetCore.Builder
+namespace Microsoft.AspNetCore.Authentication.Google
 {
     /// <summary>
-    /// Configuration options for <see cref="GoogleMiddleware"/>.
+    /// Configuration options for <see cref="GoogleHandler"/>.
     /// </summary>
     public class GoogleOptions : OAuthOptions
     {
@@ -16,8 +18,6 @@ namespace Microsoft.AspNetCore.Builder
         /// </summary>
         public GoogleOptions()
         {
-            AuthenticationScheme = GoogleDefaults.AuthenticationScheme;
-            DisplayName = AuthenticationScheme;
             CallbackPath = new PathString("/signin-google");
             AuthorizationEndpoint = GoogleDefaults.AuthorizationEndpoint;
             TokenEndpoint = GoogleDefaults.TokenEndpoint;
@@ -25,6 +25,13 @@ namespace Microsoft.AspNetCore.Builder
             Scope.Add("openid");
             Scope.Add("profile");
             Scope.Add("email");
+
+            ClaimActions.MapJsonKey(ClaimTypes.NameIdentifier, "id");
+            ClaimActions.MapJsonKey(ClaimTypes.Name, "displayName");
+            ClaimActions.MapJsonSubKey(ClaimTypes.GivenName, "name", "givenName");
+            ClaimActions.MapJsonSubKey(ClaimTypes.Surname, "name", "familyName");
+            ClaimActions.MapJsonKey("urn:google:profile", "url");
+            ClaimActions.MapCustomJson(ClaimTypes.Email, GoogleHelper.GetEmail);
         }
 
         /// <summary>

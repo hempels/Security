@@ -29,7 +29,7 @@ namespace Microsoft.AspNetCore.Authorization
         /// Resource is an optional parameter and may be null. Please ensure that you check it is not 
         /// null before acting upon it.
         /// </remarks>
-        Task<bool> AuthorizeAsync(ClaimsPrincipal user, object resource, IEnumerable<IAuthorizationRequirement> requirements);
+        Task<AuthorizationResult> AuthorizeAsync(ClaimsPrincipal user, object resource, IEnumerable<IAuthorizationRequirement> requirements);
 
         /// <summary>
         /// Checks if a user meets a specific authorization policy
@@ -43,12 +43,12 @@ namespace Microsoft.AspNetCore.Authorization
         /// <returns>
         /// A flag indicating whether authorization has succeeded.
         /// Returns a flag indicating whether the user, and optional resource has fulfilled the policy.    
-        /// <value>true</value> when the the policy has been fulfilled; otherwise <value>false</value>.
+        /// <value>true</value> when the policy has been fulfilled; otherwise <value>false</value>.
         /// </returns>
         /// <remarks>
         /// Resource is an optional parameter and may be null. Please ensure that you check it is not 
         /// null before acting upon it.
         /// </remarks>
-        Task<bool> AuthorizeAsync(ClaimsPrincipal user, object resource, string policyName);
+        Task<AuthorizationResult> AuthorizeAsync(ClaimsPrincipal user, object resource, string policyName);
     }
 }

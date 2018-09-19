@@ -3,11 +3,11 @@
 
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Security.Claims;
 using System.Security.Principal;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Microsoft.AspNetCore.Authorization
 {
@@ -16,8 +16,11 @@ namespace Microsoft.AspNetCore.Authorization
     /// </summary>
     public class DefaultAuthorizationService : IAuthorizationService
     {
+        private readonly AuthorizationOptions _options;
+        private readonly IAuthorizationHandlerContextFactory _contextFactory;
+        private readonly IAuthorizationHandlerProvider _handlers;
+        private readonly IAuthorizationEvaluator _evaluator;
         private readonly IAuthorizationPolicyProvider _policyProvider;
-        private readonly IList<IAuthorizationHandler> _handlers;
         private readonly ILogger _logger;
 
         /// <summary>
@@ -26,8 +29,15 @@ namespace Microsoft.AspNetCore.Authorization
         /// <param name="policyProvider">The <see cref="IAuthorizationPolicyProvider"/> used to provide policies.</param>
         /// <param name="handlers">The handlers used to fulfill <see cref="IAuthorizationRequirement"/>s.</param>
         /// <param name="logger">The logger used to log messages, warnings and errors.</param>  
-        public DefaultAuthorizationService(IAuthorizationPolicyProvider policyProvider, IEnumerable<IAuthorizationHandler> handlers, ILogger<DefaultAuthorizationService> logger)
+        /// <param name="contextFactory">The <see cref="IAuthorizationHandlerContextFactory"/> used to create the context to handle the authorization.</param>  
+        /// <param name="evaluator">The <see cref="IAuthorizationEvaluator"/> used to determine if authorization was successful.</param>  
+        /// <param name="options">The <see cref="AuthorizationOptions"/> used.</param>  
+        public DefaultAuthorizationService(IAuthorizationPolicyProvider policyProvider, IAuthorizationHandlerProvider handlers, ILogger<DefaultAuthorizationService> logger, IAuthorizationHandlerContextFactory contextFactory, IAuthorizationEvaluator evaluator, IOptions<AuthorizationOptions> options)
         {
+            if (options == null)
+            {
+                throw new ArgumentNullException(nameof(options));
+            }
             if (policyProvider == null)
             {
                 throw new ArgumentNullException(nameof(policyProvider));
@@ -40,10 +50,21 @@ namespace Microsoft.AspNetCore.Authorization
             {
                 throw new ArgumentNullException(nameof(logger));
             }
+            if (contextFactory == null)
+            {
+                throw new ArgumentNullException(nameof(contextFactory));
+            }
+            if (evaluator == null)
+            {
+                throw new ArgumentNullException(nameof(evaluator));
+            }
 
-            _handlers = handlers.ToArray();
+            _options = options.Value;
+            _handlers = handlers;
             _policyProvider = policyProvider;
             _logger = logger;
+            _evaluator = evaluator;
+            _contextFactory = contextFactory;
         }
 
         /// <summary>
@@ -53,54 +74,37 @@ namespace Microsoft.AspNetCore.Authorization
         /// <param name="resource">The resource to evaluate the requirements against.</param>
         /// <param name="requirements">The requirements to evaluate.</param>
         /// <returns>
-        /// A flag indicating whether authorization has succeded.
+        /// A flag indicating whether authorization has succeeded.
         /// This value is <value>true</value> when the user fulfills the policy otherwise <value>false</value>.
         /// </returns>
-        public async Task<bool> AuthorizeAsync(ClaimsPrincipal user, object resource, IEnumerable<IAuthorizationRequirement> requirements)
+        public async Task<AuthorizationResult> AuthorizeAsync(ClaimsPrincipal user, object resource, IEnumerable<IAuthorizationRequirement> requirements)
         {
             if (requirements == null)
             {
                 throw new ArgumentNullException(nameof(requirements));
             }
 
-            var authContext = new AuthorizationHandlerContext(requirements, user, resource);
-            foreach (var handler in _handlers)
+            var authContext = _contextFactory.CreateContext(requirements, user, resource);
+            var handlers = await _handlers.GetHandlersAsync(authContext);
+            foreach (var handler in handlers)
             {
                 await handler.HandleAsync(authContext);
+                if (!_options.InvokeHandlersAfterFailure && authContext.HasFailed)
+                {
+                    break;
+                }
             }
 
-            if (authContext.HasSucceeded)
+            var result = _evaluator.Evaluate(authContext);
+            if (result.Succeeded)
             {
-                _logger.UserAuthorizationSucceeded(GetUserNameForLogging(user));
-                return true;
+                _logger.UserAuthorizationSucceeded();
             }
             else
             {
-                _logger.UserAuthorizationFailed(GetUserNameForLogging(user));
-                return false;
+                _logger.UserAuthorizationFailed();
             }
-        }
-
-        private string GetUserNameForLogging(ClaimsPrincipal user)
-        {
-            var identity = user?.Identity;
-            if (identity != null)
-            {
-                var name = identity.Name;
-                if (name != null)
-                {
-                    return name;
-                }
-                return GetClaimValue(identity, "sub")
-                    ?? GetClaimValue(identity, ClaimTypes.Name)
-                    ?? GetClaimValue(identity, ClaimTypes.NameIdentifier);
-            }
-            return null;
-        }
-
-        private static string GetClaimValue(IIdentity identity, string claimsType)
-        {
-            return (identity as ClaimsIdentity)?.FindFirst(claimsType)?.Value;
+            return result;
         }
 
         /// <summary>
@@ -110,10 +114,10 @@ namespace Microsoft.AspNetCore.Authorization
         /// <param name="resource">The resource the policy should be checked with.</param>
         /// <param name="policyName">The name of the policy to check against a specific context.</param>
         /// <returns>
-        /// A flag indicating whether authorization has succeded.
+        /// A flag indicating whether authorization has succeeded.
         /// This value is <value>true</value> when the user fulfills the policy otherwise <value>false</value>.
         /// </returns>
-        public async Task<bool> AuthorizeAsync(ClaimsPrincipal user, object resource, string policyName)
+        public async Task<AuthorizationResult> AuthorizeAsync(ClaimsPrincipal user, object resource, string policyName)
         {
             if (policyName == null)
             {

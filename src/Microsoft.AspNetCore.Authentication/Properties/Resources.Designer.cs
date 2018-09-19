@@ -15,48 +15,70 @@ namespace Microsoft.AspNetCore.Authentication
         /// </summary>
         internal static string Exception_DefaultDpapiRequiresAppNameKey
         {
-            get { return GetString("Exception_DefaultDpapiRequiresAppNameKey"); }
+            get => GetString("Exception_DefaultDpapiRequiresAppNameKey");
         }
 
         /// <summary>
         /// The default data protection provider may only be used when the IApplicationBuilder.Properties contains an appropriate 'host.AppName' key.
         /// </summary>
         internal static string FormatException_DefaultDpapiRequiresAppNameKey()
-        {
-            return GetString("Exception_DefaultDpapiRequiresAppNameKey");
-        }
+            => GetString("Exception_DefaultDpapiRequiresAppNameKey");
 
         /// <summary>
         /// The state passed to UnhookAuthentication may only be the return value from HookAuthentication.
         /// </summary>
         internal static string Exception_UnhookAuthenticationStateType
         {
-            get { return GetString("Exception_UnhookAuthenticationStateType"); }
+            get => GetString("Exception_UnhookAuthenticationStateType");
         }
 
         /// <summary>
         /// The state passed to UnhookAuthentication may only be the return value from HookAuthentication.
         /// </summary>
         internal static string FormatException_UnhookAuthenticationStateType()
-        {
-            return GetString("Exception_UnhookAuthenticationStateType");
-        }
+            => GetString("Exception_UnhookAuthenticationStateType");
 
         /// <summary>
         /// The AuthenticationTokenProvider's required synchronous events have not been registered.
         /// </summary>
         internal static string Exception_AuthenticationTokenDoesNotProvideSyncMethods
         {
-            get { return GetString("Exception_AuthenticationTokenDoesNotProvideSyncMethods"); }
+            get => GetString("Exception_AuthenticationTokenDoesNotProvideSyncMethods");
         }
 
         /// <summary>
         /// The AuthenticationTokenProvider's required synchronous events have not been registered.
         /// </summary>
         internal static string FormatException_AuthenticationTokenDoesNotProvideSyncMethods()
+            => GetString("Exception_AuthenticationTokenDoesNotProvideSyncMethods");
+
+        /// <summary>
+        /// The '{0}' option must be provided.
+        /// </summary>
+        internal static string Exception_OptionMustBeProvided
         {
-            return GetString("Exception_AuthenticationTokenDoesNotProvideSyncMethods");
+            get => GetString("Exception_OptionMustBeProvided");
         }
+
+        /// <summary>
+        /// The '{0}' option must be provided.
+        /// </summary>
+        internal static string FormatException_OptionMustBeProvided(object p0)
+            => string.Format(CultureInfo.CurrentCulture, GetString("Exception_OptionMustBeProvided"), p0);
+
+        /// <summary>
+        /// The SignInScheme for a remote authentication handler cannot be set to itself.  If it was not explicitly set, the AuthenticationOptions.DefaultSignInScheme or DefaultScheme is used.
+        /// </summary>
+        internal static string Exception_RemoteSignInSchemeCannotBeSelf
+        {
+            get => GetString("Exception_RemoteSignInSchemeCannotBeSelf");
+        }
+
+        /// <summary>
+        /// The SignInScheme for a remote authentication handler cannot be set to itself.  If it was not explicitly set, the AuthenticationOptions.DefaultSignInScheme or DefaultScheme is used.
+        /// </summary>
+        internal static string FormatException_RemoteSignInSchemeCannotBeSelf()
+            => GetString("Exception_RemoteSignInSchemeCannotBeSelf");
 
         private static string GetString(string name, params string[] formatterNames)
         {

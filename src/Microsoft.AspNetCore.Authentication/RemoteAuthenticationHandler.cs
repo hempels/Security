@@ -3,136 +3,187 @@
 
 using System;
 using System.Security.Cryptography;
+using System.Text.Encodings.Web;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Http.Features.Authentication;
-using Microsoft.AspNetCore.Http.Authentication;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Microsoft.AspNetCore.Authentication
 {
-    public abstract class RemoteAuthenticationHandler<TOptions> : AuthenticationHandler<TOptions> where TOptions : RemoteAuthenticationOptions
+    public abstract class RemoteAuthenticationHandler<TOptions> : AuthenticationHandler<TOptions>, IAuthenticationRequestHandler
+        where TOptions : RemoteAuthenticationOptions, new()
     {
-        private const string CorrelationPrefix = ".AspNetCore.Correlation.";
         private const string CorrelationProperty = ".xsrf";
         private const string CorrelationMarker = "N";
+        private const string AuthSchemeKey = ".AuthScheme";
 
         private static readonly RandomNumberGenerator CryptoRandom = RandomNumberGenerator.Create();
 
-        public override async Task<bool> HandleRequestAsync()
+        protected string SignInScheme => Options.SignInScheme;
+
+        /// <summary>
+        /// The handler calls methods on the events which give the application control at certain points where processing is occurring.
+        /// If it is not provided a default instance is supplied which does nothing when the methods are called.
+        /// </summary>
+        protected new RemoteAuthenticationEvents Events
         {
-            if (Options.CallbackPath == Request.Path)
-            {
-                return await HandleRemoteCallbackAsync();
-            }
-            return false;
+            get { return (RemoteAuthenticationEvents)base.Events; }
+            set { base.Events = value; }
         }
 
-        protected virtual async Task<bool> HandleRemoteCallbackAsync()
+        protected RemoteAuthenticationHandler(IOptionsMonitor<TOptions> options, ILoggerFactory logger, UrlEncoder encoder, ISystemClock clock)
+            : base(options, logger, encoder, clock) { }
+
+        protected override Task<object> CreateEventsAsync()
+            => Task.FromResult<object>(new RemoteAuthenticationEvents());
+
+        public virtual Task<bool> ShouldHandleRequestAsync()
+            => Task.FromResult(Options.CallbackPath == Request.Path);
+
+        public virtual async Task<bool> HandleRequestAsync()
         {
-            var authResult = await HandleRemoteAuthenticateAsync();
-            if (authResult != null && authResult.Skipped)
+            if (!await ShouldHandleRequestAsync())
             {
                 return false;
             }
-            if (authResult == null || !authResult.Succeeded)
+
+            AuthenticationTicket ticket = null;
+            Exception exception = null;
+            AuthenticationProperties properties = null;
+            try
             {
-                var errorContext = new FailureContext(Context, authResult?.Failure ?? new Exception("Invalid return state, unable to redirect."));
-                Logger.RemoteAuthenticationError(errorContext.Failure.Message);
-                await Options.Events.RemoteFailure(errorContext);
-                if (errorContext.HandledResponse)
+                var authResult = await HandleRemoteAuthenticateAsync();
+                if (authResult == null)
+                {
+                    exception = new InvalidOperationException("Invalid return state, unable to redirect.");
+                }
+                else if (authResult.Handled)
                 {
                     return true;
                 }
-                if (errorContext.Skipped)
+                else if (authResult.Skipped || authResult.None)
                 {
                     return false;
                 }
+                else if (!authResult.Succeeded)
+                {
+                    exception = authResult.Failure ?? new InvalidOperationException("Invalid return state, unable to redirect.");
+                    properties = authResult.Properties;
+                }
 
-                throw new AggregateException("Unhandled remote failure.", errorContext.Failure);
+                ticket = authResult?.Ticket;
+            }
+            catch (Exception ex)
+            {
+                exception = ex;
+            }
+
+            if (exception != null)
+            {
+                Logger.RemoteAuthenticationError(exception.Message);
+                var errorContext = new RemoteFailureContext(Context, Scheme, Options, exception)
+                {
+                    Properties = properties
+                };
+                await Events.RemoteFailure(errorContext);
+
+                if (errorContext.Result != null)
+                {
+                    if (errorContext.Result.Handled)
+                    {
+                        return true;
+                    }
+                    else if (errorContext.Result.Skipped)
+                    {
+                        return false;
+                    }
+                    else if (errorContext.Result.Failure != null)
+                    {
+                        throw new Exception("An error was returned from the RemoteFailure event.", errorContext.Result.Failure);
+                    }
+                }
+
+                if (errorContext.Failure != null)
+                {
+                    throw new Exception("An error was encountered while handling the remote login.", errorContext.Failure);
+                }
             }
 
             // We have a ticket if we get here
-            var ticket = authResult.Ticket;
-            var context = new TicketReceivedContext(Context, Options, ticket)
+            var ticketContext = new TicketReceivedContext(Context, Scheme, Options, ticket)
             {
-                ReturnUri = ticket.Properties.RedirectUri,
+                ReturnUri = ticket.Properties.RedirectUri
             };
-            // REVIEW: is this safe or good?
+
             ticket.Properties.RedirectUri = null;
 
-            await Options.Events.TicketReceived(context);
+            // Mark which provider produced this identity so we can cross-check later in HandleAuthenticateAsync
+            ticketContext.Properties.Items[AuthSchemeKey] = Scheme.Name;
 
-            if (context.HandledResponse)
+            await Events.TicketReceived(ticketContext);
+
+            if (ticketContext.Result != null)
             {
-                Logger.SigninHandled();
-                return true;
-            }
-            else if (context.Skipped)
-            {
-                Logger.SigninSkipped();
-                return false;
+                if (ticketContext.Result.Handled)
+                {
+                    Logger.SigninHandled();
+                    return true;
+                }
+                else if (ticketContext.Result.Skipped)
+                {
+                    Logger.SigninSkipped();
+                    return false;
+                }
             }
 
-            await Context.Authentication.SignInAsync(Options.SignInScheme, context.Principal, context.Properties);
+            await Context.SignInAsync(SignInScheme, ticketContext.Principal, ticketContext.Properties);
 
             // Default redirect path is the base path
-            if (string.IsNullOrEmpty(context.ReturnUri))
+            if (string.IsNullOrEmpty(ticketContext.ReturnUri))
             {
-                context.ReturnUri = "/";
+                ticketContext.ReturnUri = "/";
             }
 
-            Response.Redirect(context.ReturnUri);
+            Response.Redirect(ticketContext.ReturnUri);
             return true;
         }
 
-        protected abstract Task<AuthenticateResult> HandleRemoteAuthenticateAsync();
+        /// <summary>
+        /// Authenticate the user identity with the identity provider.
+        ///
+        /// The method process the request on the endpoint defined by CallbackPath.
+        /// </summary>
+        protected abstract Task<HandleRequestResult> HandleRemoteAuthenticateAsync();
 
         protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
         {
-            // Most RemoteAuthenticationHandlers will have a PriorHandler, but it might not be set up during unit tests.
-            if (PriorHandler != null)
+            var result = await Context.AuthenticateAsync(SignInScheme);
+            if (result != null)
             {
-                var authenticateContext = new AuthenticateContext(Options.SignInScheme);
-                await PriorHandler.AuthenticateAsync(authenticateContext);
-                if (authenticateContext.Accepted)
+                if (result.Failure != null)
                 {
-                    if (authenticateContext.Error != null)
-                    {
-                        return AuthenticateResult.Fail(authenticateContext.Error);
-                    }
-
-                    if (authenticateContext.Principal != null)
-                    {
-                        return AuthenticateResult.Success(new AuthenticationTicket(authenticateContext.Principal,
-                            new AuthenticationProperties(authenticateContext.Properties), Options.AuthenticationScheme));
-                    }
-
-                    return AuthenticateResult.Fail("Not authenticated");
+                    return result;
                 }
 
+                // The SignInScheme may be shared with multiple providers, make sure this provider issued the identity.
+                string authenticatedScheme;
+                var ticket = result.Ticket;
+                if (ticket != null && ticket.Principal != null && ticket.Properties != null
+                    && ticket.Properties.Items.TryGetValue(AuthSchemeKey, out authenticatedScheme)
+                    && string.Equals(Scheme.Name, authenticatedScheme, StringComparison.Ordinal))
+                {
+                    return AuthenticateResult.Success(new AuthenticationTicket(ticket.Principal,
+                        ticket.Properties, Scheme.Name));
+                }
+
+                return AuthenticateResult.Fail("Not authenticated");
             }
 
-            return AuthenticateResult.Fail("Remote authentication does not support authenticate");
+            return AuthenticateResult.Fail("Remote authentication does not directly support AuthenticateAsync");
         }
 
-        protected override Task HandleSignOutAsync(SignOutContext context)
-        {
-            throw new NotSupportedException();
-        }
-
-        protected override Task HandleSignInAsync(SignInContext context)
-        {
-            throw new NotSupportedException();
-        }
-
-        protected override async Task<bool> HandleForbiddenAsync(ChallengeContext context)
-        {
-            var challengeContext = new ChallengeContext(Options.SignInScheme, context.Properties, ChallengeBehavior.Forbidden);
-            await PriorHandler.ChallengeAsync(challengeContext);
-            return challengeContext.Accepted;
-        }
+        protected override Task HandleForbiddenAsync(AuthenticationProperties properties)
+            => Context.ForbidAsync(SignInScheme);
 
         protected virtual void GenerateCorrelationId(AuthenticationProperties properties)
         {
@@ -145,16 +196,11 @@ namespace Microsoft.AspNetCore.Authentication
             CryptoRandom.GetBytes(bytes);
             var correlationId = Base64UrlTextEncoder.Encode(bytes);
 
-            var cookieOptions = new CookieOptions
-            {
-                HttpOnly = true,
-                Secure = Request.IsHttps,
-                Expires = properties.ExpiresUtc
-            };
+            var cookieOptions = Options.CorrelationCookie.Build(Context, Clock.UtcNow);
 
             properties.Items[CorrelationProperty] = correlationId;
 
-            var cookieName = CorrelationPrefix + Options.AuthenticationScheme + "." + correlationId;
+            var cookieName = Options.CorrelationCookie.Name + Scheme.Name + "." + correlationId;
 
             Response.Cookies.Append(cookieName, CorrelationMarker, cookieOptions);
         }
@@ -166,16 +212,15 @@ namespace Microsoft.AspNetCore.Authentication
                 throw new ArgumentNullException(nameof(properties));
             }
 
-            string correlationId;
-            if (!properties.Items.TryGetValue(CorrelationProperty, out correlationId))
+            if (!properties.Items.TryGetValue(CorrelationProperty, out string correlationId))
             {
-                Logger.CorrelationPropertyNotFound(CorrelationPrefix);
+                Logger.CorrelationPropertyNotFound(Options.CorrelationCookie.Name);
                 return false;
             }
 
             properties.Items.Remove(CorrelationProperty);
 
-            var cookieName = CorrelationPrefix + Options.AuthenticationScheme + "." + correlationId;
+            var cookieName = Options.CorrelationCookie.Name + Scheme.Name + "." + correlationId;
 
             var correlationCookie = Request.Cookies[cookieName];
             if (string.IsNullOrEmpty(correlationCookie))
@@ -184,11 +229,8 @@ namespace Microsoft.AspNetCore.Authentication
                 return false;
             }
 
-            var cookieOptions = new CookieOptions
-            {
-                HttpOnly = true,
-                Secure = Request.IsHttps
-            };
+            var cookieOptions = Options.CorrelationCookie.Build(Context, Clock.UtcNow);
+
             Response.Cookies.Delete(cookieName, cookieOptions);
 
             if (!string.Equals(correlationCookie, CorrelationMarker, StringComparison.Ordinal))

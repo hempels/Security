@@ -1,26 +1,27 @@
 // Copyright (c) .NET Foundation. All rights reserved.
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
+using System.Collections.Generic;
 using System.Globalization;
 using System.Net.Http;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authentication.OAuth;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http.Authentication;
 using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Newtonsoft.Json.Linq;
 
 namespace Microsoft.AspNetCore.Authentication.Facebook
 {
-    internal class FacebookHandler : OAuthHandler<FacebookOptions>
+    public class FacebookHandler : OAuthHandler<FacebookOptions>
     {
-        public FacebookHandler(HttpClient httpClient)
-            : base(httpClient)
-        {
-        }
+        public FacebookHandler(IOptionsMonitor<FacebookOptions> options, ILoggerFactory logger, UrlEncoder encoder, ISystemClock clock)
+            : base(options, logger, encoder, clock)
+        { }
 
         protected override async Task<AuthenticationTicket> CreateTicketAsync(ClaimsIdentity identity, AuthenticationProperties properties, OAuthTokenResponse tokens)
         {
@@ -35,100 +36,20 @@ namespace Microsoft.AspNetCore.Authentication.Facebook
             }
 
             var response = await Backchannel.GetAsync(endpoint, Context.RequestAborted);
-            response.EnsureSuccessStatusCode();
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new HttpRequestException($"An error occurred when retrieving Facebook user information ({response.StatusCode}). Please check if the authentication information is correct and the corresponding Facebook Graph API is enabled.");
+            }
 
             var payload = JObject.Parse(await response.Content.ReadAsStringAsync());
 
-            var ticket = new AuthenticationTicket(new ClaimsPrincipal(identity), properties, Options.AuthenticationScheme);
-            var context = new OAuthCreatingTicketContext(ticket, Context, Options, Backchannel, tokens, payload);
+            var context = new OAuthCreatingTicketContext(new ClaimsPrincipal(identity), properties, Context, Scheme, Options, Backchannel, tokens, payload);
+            context.RunClaimActions();
 
-            var identifier = FacebookHelper.GetId(payload);
-            if (!string.IsNullOrEmpty(identifier))
-            {
-                identity.AddClaim(new Claim(ClaimTypes.NameIdentifier, identifier, ClaimValueTypes.String, Options.ClaimsIssuer));
-            }
+            await Events.CreatingTicket(context);
 
-            var ageRangeMin = FacebookHelper.GetAgeRangeMin(payload);
-            if (!string.IsNullOrEmpty(ageRangeMin))
-            {
-                identity.AddClaim(new Claim("urn:facebook:age_range_min", ageRangeMin, ClaimValueTypes.String, Options.ClaimsIssuer));
-            }
+            return new AuthenticationTicket(context.Principal, context.Properties, Scheme.Name);
 
-            var ageRangeMax = FacebookHelper.GetAgeRangeMax(payload);
-            if (!string.IsNullOrEmpty(ageRangeMax))
-            {
-                identity.AddClaim(new Claim("urn:facebook:age_range_max", ageRangeMax, ClaimValueTypes.String, Options.ClaimsIssuer));
-            }
-
-            var birthday = FacebookHelper.GetBirthday(payload);
-            if (!string.IsNullOrEmpty(birthday))
-            {
-                identity.AddClaim(new Claim(ClaimTypes.DateOfBirth, birthday, ClaimValueTypes.String, Options.ClaimsIssuer));
-            }
-
-            var email = FacebookHelper.GetEmail(payload);
-            if (!string.IsNullOrEmpty(email))
-            {
-                identity.AddClaim(new Claim(ClaimTypes.Email, email, ClaimValueTypes.String, Options.ClaimsIssuer));
-            }
-
-            var firstName = FacebookHelper.GetFirstName(payload);
-            if (!string.IsNullOrEmpty(firstName))
-            {
-                identity.AddClaim(new Claim(ClaimTypes.GivenName, firstName, ClaimValueTypes.String, Options.ClaimsIssuer));
-            }
-
-            var gender = FacebookHelper.GetGender(payload);
-            if (!string.IsNullOrEmpty(gender))
-            {
-                identity.AddClaim(new Claim(ClaimTypes.Gender, gender, ClaimValueTypes.String, Options.ClaimsIssuer));
-            }
-
-            var lastName = FacebookHelper.GetLastName(payload);
-            if (!string.IsNullOrEmpty(lastName))
-            {
-                identity.AddClaim(new Claim(ClaimTypes.Surname, lastName, ClaimValueTypes.String, Options.ClaimsIssuer));
-            }
-
-            var link = FacebookHelper.GetLink(payload);
-            if (!string.IsNullOrEmpty(link))
-            {
-                identity.AddClaim(new Claim("urn:facebook:link", link, ClaimValueTypes.String, Options.ClaimsIssuer));
-            }
-
-            var location = FacebookHelper.GetLocation(payload);
-            if (!string.IsNullOrEmpty(location))
-            {
-                identity.AddClaim(new Claim("urn:facebook:location", location, ClaimValueTypes.String, Options.ClaimsIssuer));
-            }
-
-            var locale = FacebookHelper.GetLocale(payload);
-            if (!string.IsNullOrEmpty(locale))
-            {
-                identity.AddClaim(new Claim(ClaimTypes.Locality, locale, ClaimValueTypes.String, Options.ClaimsIssuer));
-            }
-
-            var middleName = FacebookHelper.GetMiddleName(payload);
-            if (!string.IsNullOrEmpty(middleName))
-            {
-                identity.AddClaim(new Claim("urn:facebook:middle_name", middleName, ClaimValueTypes.String, Options.ClaimsIssuer));
-            }
-
-            var name = FacebookHelper.GetName(payload);
-            if (!string.IsNullOrEmpty(name))
-            {
-                identity.AddClaim(new Claim(ClaimTypes.Name, name, ClaimValueTypes.String, Options.ClaimsIssuer));
-            }
- 
-            var timeZone = FacebookHelper.GetTimeZone(payload);
-            if (!string.IsNullOrEmpty(timeZone))
-            {
-                identity.AddClaim(new Claim("urn:facebook:timezone", timeZone, ClaimValueTypes.String, Options.ClaimsIssuer));
-            }
-
-            await Options.Events.CreatingTicket(context);
-
-            return context.Ticket;
         }
 
         private string GenerateAppSecretProof(string accessToken)
@@ -145,12 +66,15 @@ namespace Microsoft.AspNetCore.Authentication.Facebook
             }
         }
 
-        protected override string FormatScope()
+        protected override string FormatScope(IEnumerable<string> scopes)
         {
             // Facebook deviates from the OAuth spec here. They require comma separated instead of space separated.
             // https://developers.facebook.com/docs/reference/dialogs/oauth
             // http://tools.ietf.org/html/rfc6749#section-3.3
-            return string.Join(",", Options.Scope);
+            return string.Join(",", scopes);
         }
+
+        protected override string FormatScope()
+            => base.FormatScope();
     }
 }

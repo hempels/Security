@@ -2,21 +2,18 @@
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
 using System;
-using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Http.Authentication;
 
 namespace Microsoft.AspNetCore.Authentication.JwtBearer
 {
-    public class JwtBearerChallengeContext : BaseJwtBearerContext
+    public class JwtBearerChallengeContext : PropertiesContext<JwtBearerOptions>
     {
-        public JwtBearerChallengeContext(HttpContext context, JwtBearerOptions options, AuthenticationProperties properties)
-            : base(context, options)
-        {
-            Properties = properties;
-        }
-
-        public AuthenticationProperties Properties { get; }
+        public JwtBearerChallengeContext(
+            HttpContext context,
+            AuthenticationScheme scheme,
+            JwtBearerOptions options,
+            AuthenticationProperties properties)
+            : base(context, scheme, options, properties) { }
 
         /// <summary>
         /// Any failures encountered during the authentication process.
@@ -42,5 +39,15 @@ namespace Microsoft.AspNetCore.Authentication.JwtBearer
         /// WWW-Authenticate header. This property is always null unless explicitly set.
         /// </summary>
         public string ErrorUri { get; set; }
+
+        /// <summary>
+        /// If true, will skip any default logic for this challenge.
+        /// </summary>
+        public bool Handled { get; private set; }
+
+        /// <summary>
+        /// Skips any default logic for this challenge.
+        /// </summary>
+        public void HandleResponse() => Handled = true;
     }
 }

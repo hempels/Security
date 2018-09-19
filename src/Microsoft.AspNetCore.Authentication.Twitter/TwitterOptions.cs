@@ -2,28 +2,41 @@
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
 using System;
-using System.ComponentModel;
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authentication.Twitter;
+using System.Security.Claims;
+using System.Globalization;
+using Microsoft.AspNetCore.Authentication.OAuth.Claims;
 using Microsoft.AspNetCore.Http;
 
-namespace Microsoft.AspNetCore.Builder
+namespace Microsoft.AspNetCore.Authentication.Twitter
 {
     /// <summary>
-    /// Options for the Twitter authentication middleware.
+    /// Options for the Twitter authentication handler.
     /// </summary>
     public class TwitterOptions : RemoteAuthenticationOptions
     {
+        private const string DefaultStateCookieName = "__TwitterState";
+
+        private CookieBuilder _stateCookieBuilder;
+
         /// <summary>
         /// Initializes a new instance of the <see cref="TwitterOptions"/> class.
         /// </summary>
         public TwitterOptions()
         {
-            AuthenticationScheme = TwitterDefaults.AuthenticationScheme;
-            DisplayName = AuthenticationScheme;
             CallbackPath = new PathString("/signin-twitter");
             BackchannelTimeout = TimeSpan.FromSeconds(60);
             Events = new TwitterEvents();
+
+            ClaimActions.MapJsonKey(ClaimTypes.Email, "email", ClaimValueTypes.Email);
+
+            _stateCookieBuilder = new TwitterCookieBuilder(this)
+            {
+                Name = DefaultStateCookieName,
+                SecurePolicy = CookieSecurePolicy.SameAsRequest,
+                HttpOnly = true,
+                SameSite = SameSiteMode.Lax,
+                IsEssential = true,
+            };
         }
 
         /// <summary>
@@ -47,23 +60,69 @@ namespace Microsoft.AspNetCore.Builder
         public bool RetrieveUserDetails { get; set; }
 
         /// <summary>
-        /// Gets or sets the type used to secure data handled by the middleware.
+        /// A collection of claim actions used to select values from the json user data and create Claims.
+        /// </summary>
+        public ClaimActionCollection ClaimActions { get; } = new ClaimActionCollection();
+
+        /// <summary>
+        /// Gets or sets the type used to secure data handled by the handler.
         /// </summary>
         public ISecureDataFormat<RequestToken> StateDataFormat { get; set; }
 
         /// <summary>
-        /// Gets or sets the <see cref="ITwitterEvents"/> used to handle authentication events.
+        /// Gets or sets the <see cref="TwitterEvents"/> used to handle authentication events.
         /// </summary>
-        public new ITwitterEvents Events
+        public new TwitterEvents Events
         {
-            get { return (ITwitterEvents)base.Events; }
-            set { base.Events = value; }
+            get => (TwitterEvents)base.Events;
+            set => base.Events = value;
         }
 
         /// <summary>
-        /// For testing purposes only.
+        /// Determines the settings used to create the state cookie before the
+        /// cookie gets added to the response.
         /// </summary>
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        public ISystemClock SystemClock { get; set; } = new SystemClock();
+        public CookieBuilder StateCookie
+        {
+            get => _stateCookieBuilder;
+            set => _stateCookieBuilder = value ?? throw new ArgumentNullException(nameof(value));
+        }
+
+        /// <summary>
+        /// Added the validate method to ensure that the customer key and customer secret values are not not empty for the twitter authentication middleware
+        /// </summary>
+        public override void Validate()
+        {
+            base.Validate();
+            if (string.IsNullOrEmpty(ConsumerKey))
+            {
+                throw new ArgumentException(string.Format(CultureInfo.CurrentCulture, Resources.Exception_OptionMustBeProvided, nameof(ConsumerKey)), nameof(ConsumerKey));
+            }
+
+            if (string.IsNullOrEmpty(ConsumerSecret))
+            {
+                throw new ArgumentException(string.Format(CultureInfo.CurrentCulture, Resources.Exception_OptionMustBeProvided, nameof(ConsumerSecret)), nameof(ConsumerSecret));
+            }
+        }
+
+        private class TwitterCookieBuilder : CookieBuilder
+        {
+            private readonly TwitterOptions _twitterOptions;
+
+            public TwitterCookieBuilder(TwitterOptions twitterOptions)
+            {
+                _twitterOptions = twitterOptions;
+            }
+
+            public override CookieOptions Build(HttpContext context, DateTimeOffset expiresFrom)
+            {
+                var options = base.Build(context, expiresFrom);
+                if (!Expiration.HasValue)
+                {
+                    options.Expires = expiresFrom.Add(_twitterOptions.RemoteAuthenticationTimeout);
+                }
+                return options;
+            }
+        }
     }
 }

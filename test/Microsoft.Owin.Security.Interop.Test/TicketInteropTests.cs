@@ -35,7 +35,7 @@ namespace Microsoft.Owin.Security.Interop.Test
             var newTicket = newSerializer.Deserialize(bytes);
 
             Assert.NotNull(newTicket);
-            Assert.Equal(1, newTicket.Principal.Identities.Count());
+            Assert.Single(newTicket.Principal.Identities);
             var newIdentity = newTicket.Principal.Identity as ClaimsIdentity;
             Assert.NotNull(newIdentity);
             Assert.Equal("scheme", newIdentity.AuthenticationType);
@@ -58,7 +58,7 @@ namespace Microsoft.Owin.Security.Interop.Test
 
             var expires = DateTime.Today;
             var issued = new DateTime(1979, 11, 11);
-            var properties = new AspNetCore.Http.Authentication.AuthenticationProperties();
+            var properties = new AspNetCore.Authentication.AuthenticationProperties();
             properties.IsPersistent = true;
             properties.RedirectUri = "/redirect";
             properties.Items["key"] = "value";

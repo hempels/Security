@@ -6,16 +6,16 @@ using System.Threading.Tasks;
 
 namespace Microsoft.AspNetCore.Authentication
 {
-    public class RemoteAuthenticationEvents : IRemoteAuthenticationEvents
+    public class RemoteAuthenticationEvents
     {
-        public Func<FailureContext, Task> OnRemoteFailure { get; set; } = context => Task.FromResult(0);
+        public Func<RemoteFailureContext, Task> OnRemoteFailure { get; set; } = context => Task.CompletedTask;
 
-        public Func<TicketReceivedContext, Task> OnTicketReceived { get; set; } = context => Task.FromResult(0);
+        public Func<TicketReceivedContext, Task> OnTicketReceived { get; set; } = context => Task.CompletedTask;
 
         /// <summary>
         /// Invoked when there is a remote failure
         /// </summary>
-        public virtual Task RemoteFailure(FailureContext context) => OnRemoteFailure(context);
+        public virtual Task RemoteFailure(RemoteFailureContext context) => OnRemoteFailure(context);
 
         /// <summary>
         /// Invoked after the remote ticket has been received.

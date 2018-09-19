@@ -1,9 +1,8 @@
-// Copyright (c) .NET Foundation. All rights reserved.
+﻿// Copyright (c) .NET Foundation. All rights reserved.
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
 using System;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.Extensions.Options;
 
 namespace Microsoft.AspNetCore.Builder
 {
@@ -13,50 +12,26 @@ namespace Microsoft.AspNetCore.Builder
     public static class JwtBearerAppBuilderExtensions
     {
         /// <summary>
-        /// Adds the <see cref="JwtBearerMiddleware"/> middleware to the specified <see cref="IApplicationBuilder"/>, which enables Bearer token processing capabilities.
-        /// This middleware understands appropriately
-        /// formatted and secured tokens which appear in the request header. If the Options.AuthenticationMode is Active, the
-        /// claims within the bearer token are added to the current request's IPrincipal User. If the Options.AuthenticationMode 
-        /// is Passive, then the current request is not modified, but IAuthenticationManager AuthenticateAsync may be used at
-        /// any time to obtain the claims from the request's bearer token.
-        /// See also http://tools.ietf.org/html/rfc6749
+        /// UseJwtBearerAuthentication is obsolete. Configure JwtBearer authentication with AddAuthentication().AddJwtBearer in ConfigureServices. See https://go.microsoft.com/fwlink/?linkid=845470 for more details.
         /// </summary>
-        /// <param name="app">The <see cref="IApplicationBuilder"/> to add the middleware to.</param>
+        /// <param name="app">The <see cref="IApplicationBuilder"/> to add the handler to.</param>
         /// <returns>A reference to this instance after the operation has completed.</returns>
+        [Obsolete("UseJwtBearerAuthentication is obsolete. Configure JwtBearer authentication with AddAuthentication().AddJwtBearer in ConfigureServices. See https://go.microsoft.com/fwlink/?linkid=845470 for more details.", error: true)]
         public static IApplicationBuilder UseJwtBearerAuthentication(this IApplicationBuilder app)
         {
-            if (app == null)
-            {
-                throw new ArgumentNullException(nameof(app));
-            }
-
-            return app.UseMiddleware<JwtBearerMiddleware>();
+            throw new NotSupportedException("This method is no longer supported, see https://go.microsoft.com/fwlink/?linkid=845470");
         }
 
         /// <summary>
-        /// Adds the <see cref="JwtBearerMiddleware"/> middleware to the specified <see cref="IApplicationBuilder"/>, which enables Bearer token processing capabilities.
-        /// This middleware understands appropriately
-        /// formatted and secured tokens which appear in the request header. If the Options.AuthenticationMode is Active, the
-        /// claims within the bearer token are added to the current request's IPrincipal User. If the Options.AuthenticationMode 
-        /// is Passive, then the current request is not modified, but IAuthenticationManager AuthenticateAsync may be used at
-        /// any time to obtain the claims from the request's bearer token.
-        /// See also http://tools.ietf.org/html/rfc6749
+        /// UseJwtBearerAuthentication is obsolete. Configure JwtBearer authentication with AddAuthentication().AddJwtBearer in ConfigureServices. See https://go.microsoft.com/fwlink/?linkid=845470 for more details.
         /// </summary>
-        /// <param name="app">The <see cref="IApplicationBuilder"/> to add the middleware to.</param>
-        /// <param name="options">A  <see cref="JwtBearerOptions"/> that specifies options for the middleware.</param>
+        /// <param name="app">The <see cref="IApplicationBuilder"/> to add the handler to.</param>
+        /// <param name="options">A  <see cref="JwtBearerOptions"/> that specifies options for the handler.</param>
         /// <returns>A reference to this instance after the operation has completed.</returns>
+        [Obsolete("UseJwtBearerAuthentication is obsolete. Configure JwtBearer authentication with AddAuthentication().AddJwtBearer in ConfigureServices. See https://go.microsoft.com/fwlink/?linkid=845470 for more details.", error: true)]
         public static IApplicationBuilder UseJwtBearerAuthentication(this IApplicationBuilder app, JwtBearerOptions options)
         {
-            if (app == null)
-            {
-                throw new ArgumentNullException(nameof(app));
-            }
-            if (options == null)
-            {
-                throw new ArgumentNullException(nameof(options));
-            }
-
-            return app.UseMiddleware<JwtBearerMiddleware>(Options.Create(options));
+            throw new NotSupportedException("This method is no longer supported, see https://go.microsoft.com/fwlink/?linkid=845470");
         }
     }
 }

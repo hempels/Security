@@ -6,21 +6,37 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Security.Claims;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Http.Authentication;
-using Microsoft.AspNetCore.Http.Features.Authentication;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.Net.Http.Headers;
 
 namespace Microsoft.AspNetCore.Authentication.JwtBearer
 {
-    internal class JwtBearerHandler : AuthenticationHandler<JwtBearerOptions>
+    public class JwtBearerHandler : AuthenticationHandler<JwtBearerOptions>
     {
         private OpenIdConnectConfiguration _configuration;
+
+        public JwtBearerHandler(IOptionsMonitor<JwtBearerOptions> options, ILoggerFactory logger, UrlEncoder encoder, IDataProtectionProvider dataProtection, ISystemClock clock)
+            : base(options, logger, encoder, clock)
+        { }
+
+        /// <summary>
+        /// The handler calls methods on the events which give the application control at certain points where processing is occurring. 
+        /// If it is not provided a default instance is supplied which does nothing when the methods are called.
+        /// </summary>
+        protected new JwtBearerEvents Events
+        {
+            get => (JwtBearerEvents)base.Events;
+            set => base.Events = value;
+        }
+
+        protected override Task<object> CreateEventsAsync() => Task.FromResult<object>(new JwtBearerEvents());
 
         /// <summary>
         /// Searches the 'Authorization' header for a 'Bearer' token. If the 'Bearer' token is found, it is validated using <see cref="TokenValidationParameters"/> set in the options.
@@ -29,17 +45,16 @@ namespace Microsoft.AspNetCore.Authentication.JwtBearer
         protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
         {
             string token = null;
-            AuthenticateResult result = null;
             try
             {
                 // Give application opportunity to find from a different location, adjust, or reject token
-                var messageReceivedContext = new MessageReceivedContext(Context, Options);
+                var messageReceivedContext = new MessageReceivedContext(Context, Scheme, Options);
 
                 // event can set the token
-                await Options.Events.MessageReceived(messageReceivedContext);
-                if (messageReceivedContext.CheckEventResult(out result))
+                await Events.MessageReceived(messageReceivedContext);
+                if (messageReceivedContext.Result != null)
                 {
-                    return result;
+                    return messageReceivedContext.Result;
                 }
 
                 // If application retrieved token from somewhere else, use that.
@@ -52,7 +67,7 @@ namespace Microsoft.AspNetCore.Authentication.JwtBearer
                     // If no authorization header found, nothing to process further
                     if (string.IsNullOrEmpty(authorization))
                     {
-                        return AuthenticateResult.Skip();
+                        return AuthenticateResult.NoResult();
                     }
 
                     if (authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
@@ -63,7 +78,7 @@ namespace Microsoft.AspNetCore.Authentication.JwtBearer
                     // If no token found, no further work possible
                     if (string.IsNullOrEmpty(token))
                     {
-                        return AuthenticateResult.Skip();
+                        return AuthenticateResult.NoResult();
                     }
                 }
 
@@ -75,17 +90,11 @@ namespace Microsoft.AspNetCore.Authentication.JwtBearer
                 var validationParameters = Options.TokenValidationParameters.Clone();
                 if (_configuration != null)
                 {
-                    if (validationParameters.ValidIssuer == null && !string.IsNullOrEmpty(_configuration.Issuer))
-                    {
-                        validationParameters.ValidIssuer = _configuration.Issuer;
-                    }
-                    else
-                    {
-                        var issuers = new[] { _configuration.Issuer };
-                        validationParameters.ValidIssuers = (validationParameters.ValidIssuers == null ? issuers : validationParameters.ValidIssuers.Concat(issuers));
-                    }
+                    var issuers = new[] { _configuration.Issuer };
+                    validationParameters.ValidIssuers = validationParameters.ValidIssuers?.Concat(issuers) ?? issuers;
 
-                    validationParameters.IssuerSigningKeys = (validationParameters.IssuerSigningKeys == null ? _configuration.SigningKeys : validationParameters.IssuerSigningKeys.Concat(_configuration.SigningKeys));
+                    validationParameters.IssuerSigningKeys = validationParameters.IssuerSigningKeys?.Concat(_configuration.SigningKeys)
+                        ?? _configuration.SigningKeys;
                 }
 
                 List<Exception> validationFailures = null;
@@ -101,7 +110,7 @@ namespace Microsoft.AspNetCore.Authentication.JwtBearer
                         }
                         catch (Exception ex)
                         {
-                            Logger.TokenValidationFailed(token, ex);
+                            Logger.TokenValidationFailed(ex);
 
                             // Refresh the configuration for exceptions that may be caused by key rollovers. The user can also request a refresh in the event.
                             if (Options.RefreshOnIssuerKeyNotFound && Options.ConfigurationManager != null
@@ -120,43 +129,42 @@ namespace Microsoft.AspNetCore.Authentication.JwtBearer
 
                         Logger.TokenValidationSucceeded();
 
-                        var ticket = new AuthenticationTicket(principal, new AuthenticationProperties(), Options.AuthenticationScheme);
-                        var tokenValidatedContext = new TokenValidatedContext(Context, Options)
+                        var tokenValidatedContext = new TokenValidatedContext(Context, Scheme, Options)
                         {
-                            Ticket = ticket,
-                            SecurityToken = validatedToken,
+                            Principal = principal,
+                            SecurityToken = validatedToken
                         };
 
-                        await Options.Events.TokenValidated(tokenValidatedContext);
-                        if (tokenValidatedContext.CheckEventResult(out result))
+                        await Events.TokenValidated(tokenValidatedContext);
+                        if (tokenValidatedContext.Result != null)
                         {
-                            return result;
+                            return tokenValidatedContext.Result;
                         }
-                        ticket = tokenValidatedContext.Ticket;
 
                         if (Options.SaveToken)
                         {
-                            ticket.Properties.StoreTokens(new[]
+                            tokenValidatedContext.Properties.StoreTokens(new[]
                             {
                                 new AuthenticationToken { Name = "access_token", Value = token }
                             });
                         }
 
-                        return AuthenticateResult.Success(ticket);
+                        tokenValidatedContext.Success();
+                        return tokenValidatedContext.Result;
                     }
                 }
 
                 if (validationFailures != null)
                 {
-                    var authenticationFailedContext = new AuthenticationFailedContext(Context, Options)
+                    var authenticationFailedContext = new AuthenticationFailedContext(Context, Scheme, Options)
                     {
                         Exception = (validationFailures.Count == 1) ? validationFailures[0] : new AggregateException(validationFailures)
                     };
 
-                    await Options.Events.AuthenticationFailed(authenticationFailedContext);
-                    if (authenticationFailedContext.CheckEventResult(out result))
+                    await Events.AuthenticationFailed(authenticationFailedContext);
+                    if (authenticationFailedContext.Result != null)
                     {
-                        return result;
+                        return authenticationFailedContext.Result;
                     }
 
                     return AuthenticateResult.Fail(authenticationFailedContext.Exception);
@@ -168,28 +176,27 @@ namespace Microsoft.AspNetCore.Authentication.JwtBearer
             {
                 Logger.ErrorProcessingMessage(ex);
 
-                var authenticationFailedContext = new AuthenticationFailedContext(Context, Options)
+                var authenticationFailedContext = new AuthenticationFailedContext(Context, Scheme, Options)
                 {
                     Exception = ex
                 };
 
-                await Options.Events.AuthenticationFailed(authenticationFailedContext);
-                if (authenticationFailedContext.CheckEventResult(out result))
+                await Events.AuthenticationFailed(authenticationFailedContext);
+                if (authenticationFailedContext.Result != null)
                 {
-                    return result;
+                    return authenticationFailedContext.Result;
                 }
 
                 throw;
             }
         }
 
-        protected override async Task<bool> HandleUnauthorizedAsync(ChallengeContext context)
+        protected override async Task HandleChallengeAsync(AuthenticationProperties properties)
         {
-            var authResult = await HandleAuthenticateOnceAsync();
-
-            var eventContext = new JwtBearerChallengeContext(Context, Options, new AuthenticationProperties(context.Properties))
+            var authResult = await HandleAuthenticateOnceSafeAsync();
+            var eventContext = new JwtBearerChallengeContext(Context, Scheme, Options, properties)
             {
-                AuthenticateFailure = authResult?.Failure,
+                AuthenticateFailure = authResult?.Failure
             };
 
             // Avoid returning error=invalid_token if the error is not caused by an authentication failure (e.g missing token).
@@ -199,14 +206,10 @@ namespace Microsoft.AspNetCore.Authentication.JwtBearer
                 eventContext.ErrorDescription = CreateErrorDescription(eventContext.AuthenticateFailure);
             }
 
-            await Options.Events.Challenge(eventContext);
-            if (eventContext.HandledResponse)
+            await Events.Challenge(eventContext);
+            if (eventContext.Handled)
             {
-                return true;
-            }
-            if (eventContext.Skipped)
-            {
-                return false;
+                return;
             }
 
             Response.StatusCode = 401;
@@ -259,16 +262,13 @@ namespace Microsoft.AspNetCore.Authentication.JwtBearer
 
                 Response.Headers.Append(HeaderNames.WWWAuthenticate, builder.ToString());
             }
-
-            return false;
         }
 
         private static string CreateErrorDescription(Exception authFailure)
         {
             IEnumerable<Exception> exceptions;
-            if (authFailure is AggregateException)
+            if (authFailure is AggregateException agEx)
             {
-                var agEx = authFailure as AggregateException;
                 exceptions = agEx.InnerExceptions;
             }
             else
@@ -282,51 +282,36 @@ namespace Microsoft.AspNetCore.Authentication.JwtBearer
             {
                 // Order sensitive, some of these exceptions derive from others
                 // and we want to display the most specific message possible.
-                if (ex is SecurityTokenInvalidAudienceException)
+                switch (ex)
                 {
-                    messages.Add("The audience is invalid");
-                }
-                else if (ex is SecurityTokenInvalidIssuerException)
-                {
-                    messages.Add("The issuer is invalid");
-                }
-                else if (ex is SecurityTokenNoExpirationException)
-                {
-                    messages.Add("The token has no expiration");
-                }
-                else if (ex is SecurityTokenInvalidLifetimeException)
-                {
-                    messages.Add("The token lifetime is invalid");
-                }
-                else if (ex is SecurityTokenNotYetValidException)
-                {
-                    messages.Add("The token is not valid yet");
-                }
-                else if (ex is SecurityTokenExpiredException)
-                {
-                    messages.Add("The token is expired");
-                }
-                else if (ex is SecurityTokenSignatureKeyNotFoundException)
-                {
-                    messages.Add("The signature key was not found");
-                }
-                else if (ex is SecurityTokenInvalidSignatureException)
-                {
-                    messages.Add("The signature is invalid");
+                    case SecurityTokenInvalidAudienceException _:
+                        messages.Add("The audience is invalid");
+                        break;
+                    case SecurityTokenInvalidIssuerException _:
+                        messages.Add("The issuer is invalid");
+                        break;
+                    case SecurityTokenNoExpirationException _:
+                        messages.Add("The token has no expiration");
+                        break;
+                    case SecurityTokenInvalidLifetimeException _:
+                        messages.Add("The token lifetime is invalid");
+                        break;
+                    case SecurityTokenNotYetValidException _:
+                        messages.Add("The token is not valid yet");
+                        break;
+                    case SecurityTokenExpiredException _:
+                        messages.Add("The token is expired");
+                        break;
+                    case SecurityTokenSignatureKeyNotFoundException _:
+                        messages.Add("The signature key was not found");
+                        break;
+                    case SecurityTokenInvalidSignatureException _:
+                        messages.Add("The signature is invalid");
+                        break;
                 }
             }
 
             return string.Join("; ", messages);
-        }
-
-        protected override Task HandleSignOutAsync(SignOutContext context)
-        {
-            throw new NotSupportedException();
-        }
-
-        protected override Task HandleSignInAsync(SignInContext context)
-        {
-            throw new NotSupportedException();
         }
     }
 }

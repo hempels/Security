@@ -1,24 +1,25 @@
 // Copyright (c) .NET Foundation. All rights reserved.
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
-using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Http.Authentication;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 
 namespace Microsoft.AspNetCore.Authentication.OpenIdConnect
 {
-    public class MessageReceivedContext : BaseOpenIdConnectContext
+    public class MessageReceivedContext : RemoteAuthenticationContext<OpenIdConnectOptions>
     {
-        public MessageReceivedContext(HttpContext context, OpenIdConnectOptions options)
-            : base(context, options)
-        {
-        }
+        public MessageReceivedContext(
+            HttpContext context,
+            AuthenticationScheme scheme,
+            OpenIdConnectOptions options,
+            AuthenticationProperties properties)
+            : base(context, scheme, options, properties) { }
+
+        public OpenIdConnectMessage ProtocolMessage { get; set; }
 
         /// <summary>
-        /// Bearer Token. This will give application an opportunity to retrieve token from an alternation location.
+        /// Bearer Token. This will give the application an opportunity to retrieve a token from an alternative location.
         /// </summary>
         public string Token { get; set; }
-
-        public AuthenticationProperties Properties { get; set; }
     }
 }

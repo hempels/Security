@@ -27,7 +27,7 @@ namespace Microsoft.AspNetCore.Authorization.Infrastructure
             {
                 context.Succeed(requirement);
             }
-            return Task.FromResult(0);
+            return Task.CompletedTask;
         }
     }
 }

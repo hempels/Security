@@ -1,9 +1,11 @@
-﻿using System.IO;
+﻿using System;
+using System.IO;
+using System.Net;
 using System.Reflection;
 using System.Security.Cryptography.X509Certificates;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Logging;
 
 namespace SocialSample
 {
@@ -12,11 +14,19 @@ namespace SocialSample
         public static void Main(string[] args)
         {
             var host = new WebHostBuilder()
+                .ConfigureLogging(factory =>
+                {
+                    factory.AddConsole();
+                    factory.AddFilter("Console", level => level >= LogLevel.Information);
+                })
                 .UseKestrel(options =>
                 {
-                    //Configure SSL
-                    var serverCertificate = LoadCertificate();
-                    options.UseHttps(serverCertificate);
+                    options.Listen(IPAddress.Loopback, 44318, listenOptions =>
+                    {
+                        // Configure SSL
+                        var serverCertificate = LoadCertificate();
+                        listenOptions.UseHttps(serverCertificate);
+                    });
                 })
                 .UseContentRoot(Directory.GetCurrentDirectory())
                 .UseIISIntegration()

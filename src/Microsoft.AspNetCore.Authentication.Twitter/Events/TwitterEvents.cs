@@ -7,22 +7,22 @@ using System.Threading.Tasks;
 namespace Microsoft.AspNetCore.Authentication.Twitter
 {
     /// <summary>
-    /// Default <see cref="ITwitterEvents"/> implementation.
+    /// Default <see cref="TwitterEvents"/> implementation.
     /// </summary>
-    public class TwitterEvents : RemoteAuthenticationEvents, ITwitterEvents
+    public class TwitterEvents : RemoteAuthenticationEvents
     {
         /// <summary>
         /// Gets or sets the function that is invoked when the Authenticated method is invoked.
         /// </summary>
-        public Func<TwitterCreatingTicketContext, Task> OnCreatingTicket { get; set; } = context => Task.FromResult(0);
+        public Func<TwitterCreatingTicketContext, Task> OnCreatingTicket { get; set; } = context => Task.CompletedTask;
 
         /// <summary>
         /// Gets or sets the delegate that is invoked when the ApplyRedirect method is invoked.
         /// </summary>
-        public Func<TwitterRedirectToAuthorizationEndpointContext, Task> OnRedirectToAuthorizationEndpoint { get; set; } = context =>
+        public Func<RedirectContext<TwitterOptions>, Task> OnRedirectToAuthorizationEndpoint { get; set; } = context =>
         {
             context.Response.Redirect(context.RedirectUri);
-            return Task.FromResult(0);
+            return Task.CompletedTask;
         };
 
         /// <summary>
@@ -33,9 +33,9 @@ namespace Microsoft.AspNetCore.Authentication.Twitter
         public virtual Task CreatingTicket(TwitterCreatingTicketContext context) => OnCreatingTicket(context);
 
         /// <summary>
-        /// Called when a Challenge causes a redirect to authorize endpoint in the Twitter middleware
+        /// Called when a Challenge causes a redirect to authorize endpoint in the Twitter handler
         /// </summary>
         /// <param name="context">Contains redirect URI and <see cref="Http.Authentication.AuthenticationProperties"/> of the challenge </param>
-        public virtual Task RedirectToAuthorizationEndpoint(TwitterRedirectToAuthorizationEndpointContext context) => OnRedirectToAuthorizationEndpoint(context);
+        public virtual Task RedirectToAuthorizationEndpoint(RedirectContext<TwitterOptions> context) => OnRedirectToAuthorizationEndpoint(context);
     }
 }

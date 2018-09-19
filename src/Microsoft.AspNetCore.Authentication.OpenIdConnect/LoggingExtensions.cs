@@ -8,14 +8,15 @@ namespace Microsoft.Extensions.Logging
     internal static class LoggingExtensions
     {
         private static Action<ILogger, Exception> _redirectToIdentityProviderForSignOutHandledResponse;
-        private static Action<ILogger, Exception> _redirectToIdentityProviderForSignOutSkipped;
         private static Action<ILogger, Exception> _redirectToIdentityProviderHandledResponse;
-        private static Action<ILogger, Exception> _redirectToIdentityProviderSkipped;
+        private static Action<ILogger, Exception> _signoutCallbackRedirectHandledResponse;
+        private static Action<ILogger, Exception> _signoutCallbackRedirectSkipped;
         private static Action<ILogger, Exception> _updatingConfiguration;
         private static Action<ILogger, Exception> _receivedIdToken;
         private static Action<ILogger, Exception> _redeemingCodeForTokens;
         private static Action<ILogger, string, Exception> _enteringOpenIdAuthenticationHandlerHandleRemoteAuthenticateAsync;
         private static Action<ILogger, string, Exception> _enteringOpenIdAuthenticationHandlerHandleUnauthorizedAsync;
+        private static Action<ILogger, string, Exception> _enteringOpenIdAuthenticationHandlerHandleSignOutAsync;
         private static Action<ILogger, string, Exception> _messageReceived;
         private static Action<ILogger, Exception> _messageReceivedContextHandledResponse;
         private static Action<ILogger, Exception> _messageReceivedContextSkipped;
@@ -36,7 +37,8 @@ namespace Microsoft.Extensions.Logging
         private static Action<ILogger, string, Exception> _invalidLogoutQueryStringRedirectUrl;
         private static Action<ILogger, Exception> _nullOrEmptyAuthorizationResponseState;
         private static Action<ILogger, Exception> _unableToReadAuthorizationResponseState;
-        private static Action<ILogger, string, string, string, Exception> _authorizationResponseError;
+        private static Action<ILogger, string, string, string, Exception> _responseError;
+        private static Action<ILogger, string, string, string, int, Exception> _responseErrorWithStatusCode;
         private static Action<ILogger, Exception> _exceptionProcessingMessage;
         private static Action<ILogger, Exception> _accessTokenNotAvailable;
         private static Action<ILogger, Exception> _retrievingClaims;
@@ -47,11 +49,13 @@ namespace Microsoft.Extensions.Logging
         private static Action<ILogger, string, Exception> _invalidSecurityTokenType;
         private static Action<ILogger, string, Exception> _unableToValidateIdToken;
         private static Action<ILogger, string, Exception> _postAuthenticationLocalRedirect;
+        private static Action<ILogger, string, Exception> _postSignOutRedirect;
         private static Action<ILogger, Exception> _remoteSignOutHandledResponse;
         private static Action<ILogger, Exception> _remoteSignOutSkipped;
         private static Action<ILogger, Exception> _remoteSignOut;
         private static Action<ILogger, Exception> _remoteSignOutSessionIdMissing;
         private static Action<ILogger, Exception> _remoteSignOutSessionIdInvalid;
+        private static Action<ILogger, string, Exception> _signOut;
 
         static LoggingExtensions()
         {
@@ -60,10 +64,6 @@ namespace Microsoft.Extensions.Logging
                 eventId: 1,
                 logLevel: LogLevel.Debug,
                 formatString: "RedirectToIdentityProviderForSignOut.HandledResponse");
-            _redirectToIdentityProviderForSignOutSkipped = LoggerMessage.Define(
-                eventId: 2,
-                logLevel: LogLevel.Debug,
-                formatString: "RedirectToIdentityProviderForSignOut.Skipped");
             _invalidLogoutQueryStringRedirectUrl = LoggerMessage.Define<string>(
                 eventId: 3,
                 logLevel: LogLevel.Warning,
@@ -72,6 +72,10 @@ namespace Microsoft.Extensions.Logging
                 eventId: 4,
                 logLevel: LogLevel.Trace,
                 formatString: "Entering {OpenIdConnectHandlerType}'s HandleUnauthorizedAsync.");
+            _enteringOpenIdAuthenticationHandlerHandleSignOutAsync = LoggerMessage.Define<string>(
+                eventId: 14,
+                logLevel: LogLevel.Trace,
+                formatString: "Entering {OpenIdConnectHandlerType}'s HandleSignOutAsync.");
             _postAuthenticationLocalRedirect = LoggerMessage.Define<string>(
                 eventId: 5,
                 logLevel: LogLevel.Trace,
@@ -80,10 +84,6 @@ namespace Microsoft.Extensions.Logging
                 eventId: 6,
                 logLevel: LogLevel.Debug,
                 formatString: "RedirectToIdentityProvider.HandledResponse");
-            _redirectToIdentityProviderSkipped = LoggerMessage.Define(
-                eventId: 7,
-                logLevel: LogLevel.Debug,
-                formatString: "RedirectToIdentityProvider.Skipped");
             _invalidAuthenticationRequestUrl = LoggerMessage.Define<string>(
                 eventId: 8,
                 logLevel: LogLevel.Warning,
@@ -100,10 +100,14 @@ namespace Microsoft.Extensions.Logging
                 eventId: 11,
                 logLevel: LogLevel.Debug,
                 formatString: "Unable to read the message.State.");
-            _authorizationResponseError = LoggerMessage.Define<string, string, string>(
+            _responseError = LoggerMessage.Define<string, string, string>(
                 eventId: 12,
                 logLevel: LogLevel.Error,
                 formatString: "Message contains error: '{Error}', error_description: '{ErrorDescription}', error_uri: '{ErrorUri}'.");
+            _responseErrorWithStatusCode = LoggerMessage.Define<string, string, string, int>(
+                eventId: 49,
+                logLevel: LogLevel.Error,
+                formatString: "Message contains error: '{Error}', error_description: '{ErrorDescription}', error_uri: '{ErrorUri}', status code '{StatusCode}'.");
             _updatingConfiguration = LoggerMessage.Define(
                 eventId: 13,
                 logLevel: LogLevel.Debug,
@@ -180,6 +184,10 @@ namespace Microsoft.Extensions.Logging
                 eventId: 32,
                 logLevel: LogLevel.Debug,
                 formatString: "TokenResponseReceived.Skipped");
+            _postSignOutRedirect = LoggerMessage.Define<string>(
+                eventId: 33,
+                logLevel: LogLevel.Trace,
+                formatString: "Using properties.RedirectUri for redirect post authentication: '{RedirectUri}'.");
             _userInformationReceived = LoggerMessage.Define<string>(
                eventId: 35,
                logLevel: LogLevel.Trace,
@@ -238,6 +246,18 @@ namespace Microsoft.Extensions.Logging
                logLevel: LogLevel.Error,
                formatString: "The remote signout request was ignored because the 'sid' parameter didn't match " +
                              "the expected value, which may indicate an unsolicited logout.");
+            _signOut = LoggerMessage.Define<string>(
+                 eventId: 49,
+                 logLevel: LogLevel.Information,
+                 formatString: "AuthenticationScheme: {AuthenticationScheme} signed out.");
+            _signoutCallbackRedirectHandledResponse = LoggerMessage.Define(
+                eventId: 50,
+                logLevel: LogLevel.Debug,
+                formatString: "RedirectToSignedOutRedirectUri.HandledResponse");
+            _signoutCallbackRedirectSkipped = LoggerMessage.Define(
+                eventId: 51,
+                logLevel: LogLevel.Debug,
+                formatString: "RedirectToSignedOutRedirectUri.Skipped");
         }
 
         public static void UpdatingConfiguration(this ILogger logger)
@@ -330,19 +350,19 @@ namespace Microsoft.Extensions.Logging
             _redirectToIdentityProviderForSignOutHandledResponse(logger, null);
         }
 
-        public static void RedirectToIdentityProviderForSignOutSkipped(this ILogger logger)
-        {
-            _redirectToIdentityProviderForSignOutSkipped(logger, null);
-        }
-
         public static void RedirectToIdentityProviderHandledResponse(this ILogger logger)
         {
             _redirectToIdentityProviderHandledResponse(logger, null);
         }
 
-        public static void RedirectToIdentityProviderSkipped(this ILogger logger)
+        public static void SignoutCallbackRedirectHandledResponse(this ILogger logger)
         {
-            _redirectToIdentityProviderSkipped(logger, null);
+            _signoutCallbackRedirectHandledResponse(logger, null);
+        }
+
+        public static void SignoutCallbackRedirectSkipped(this ILogger logger)
+        {
+            _signoutCallbackRedirectSkipped(logger, null);
         }
 
         public static void UserInformationReceivedHandledResponse(this ILogger logger)
@@ -370,9 +390,14 @@ namespace Microsoft.Extensions.Logging
             _unableToReadAuthorizationResponseState(logger, null);
         }
 
-        public static void AuthorizationResponseError(this ILogger logger, string error, string errorDescription, string errorUri)
+        public static void ResponseError(this ILogger logger, string error, string errorDescription, string errorUri)
         {
-            _authorizationResponseError(logger, error, errorDescription, errorUri, null);
+            _responseError(logger, error, errorDescription, errorUri, null);
+        }
+
+        public static void ResponseErrorWithStatusCode(this ILogger logger, string error, string errorDescription, string errorUri, int statusCode)
+        {
+            _responseErrorWithStatusCode(logger, error, errorDescription, errorUri, statusCode, null);
         }
 
         public static void ExceptionProcessingMessage(this ILogger logger, Exception ex)
@@ -430,6 +455,11 @@ namespace Microsoft.Extensions.Logging
             _enteringOpenIdAuthenticationHandlerHandleUnauthorizedAsync(logger, openIdConnectHandlerTypeName, null);
         }
 
+        public static void EnteringOpenIdAuthenticationHandlerHandleSignOutAsync(this ILogger logger, string openIdConnectHandlerTypeName)
+        {
+            _enteringOpenIdAuthenticationHandlerHandleSignOutAsync(logger, openIdConnectHandlerTypeName, null);
+        }
+
         public static void UserInformationReceived(this ILogger logger, string user)
         {
             _userInformationReceived(logger, user, null);
@@ -438,6 +468,11 @@ namespace Microsoft.Extensions.Logging
         public static void PostAuthenticationLocalRedirect(this ILogger logger, string redirectUri)
         {
             _postAuthenticationLocalRedirect(logger, redirectUri, null);
+        }
+
+        public static void PostSignOutRedirect(this ILogger logger, string redirectUri)
+        {
+            _postSignOutRedirect(logger, redirectUri, null);
         }
 
         public static void RemoteSignOutHandledResponse(this ILogger logger)
@@ -463,6 +498,11 @@ namespace Microsoft.Extensions.Logging
         public static void RemoteSignOutSessionIdInvalid(this ILogger logger)
         {
             _remoteSignOutSessionIdInvalid(logger, null);
+        }
+
+        public static void SignedOut(this ILogger logger, string authenticationScheme)
+        {
+            _signOut(logger, authenticationScheme, null);
         }
     }
 }

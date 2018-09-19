@@ -1,16 +1,17 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Text.Encodings.Web;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Http.Authentication;
 using Microsoft.AspNetCore.Http.Extensions;
-using Microsoft.AspNetCore.Http.Features.Authentication;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Clients.ActiveDirectory;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 
@@ -18,8 +19,6 @@ namespace OpenIdConnect.AzureAdSample
 {
     public class Startup
     {
-        private const string GraphResourceID = "https://graph.windows.net";
-
         public Startup(IHostingEnvironment env)
         {
             var builder = new ConfigurationBuilder()
@@ -28,7 +27,7 @@ namespace OpenIdConnect.AzureAdSample
             if (env.IsDevelopment())
             {
                 // For more details on using the user secret store see http://go.microsoft.com/fwlink/?LinkID=532709
-                builder.AddUserSecrets();
+                builder.AddUserSecrets<Startup>();
             }
 
             builder.AddEnvironmentVariables();
@@ -37,114 +36,168 @@ namespace OpenIdConnect.AzureAdSample
 
         public IConfiguration Configuration { get; set; }
 
+        private string ClientId => Configuration["oidc:clientid"];
+        private string ClientSecret => Configuration["oidc:clientsecret"];
+        private string Authority => Configuration["oidc:authority"];
+        private string Resource => "https://graph.windows.net";
+
         public void ConfigureServices(IServiceCollection services)
         {
             services.AddAuthentication(sharedOptions =>
-                sharedOptions.SignInScheme = CookieAuthenticationDefaults.AuthenticationScheme);
-        }
-
-        public void Configure(IApplicationBuilder app, ILoggerFactory loggerfactory)
-        {
-            loggerfactory.AddConsole(Microsoft.Extensions.Logging.LogLevel.Information);
-
-            // Simple error page
-            app.Use(async (context, next) =>
             {
-                try
-                {
-                    await next();
-                }
-                catch (Exception ex)
-                {
-                    if (!context.Response.HasStarted)
-                    {
-                        context.Response.Clear();
-                        context.Response.StatusCode = 500;
-                        await context.Response.WriteAsync(ex.ToString());
-                    }
-                    else
-                    {
-                        throw;
-                    }
-                }
-            });
-
-            app.UseCookieAuthentication(new CookieAuthenticationOptions());
-
-            var clientId = Configuration["oidc:clientid"];
-            var clientSecret = Configuration["oidc:clientsecret"];
-            var authority = Configuration["oidc:authority"];
-            var resource = "https://graph.windows.net";
-            app.UseOpenIdConnectAuthentication(new OpenIdConnectOptions
+                sharedOptions.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+                sharedOptions.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme;
+            })
+                .AddCookie()
+                .AddOpenIdConnect(OpenIdConnectDefaults.AuthenticationScheme, "AAD", o =>
             {
-                ClientId = clientId,
-                ClientSecret = clientSecret, // for code flow
-                Authority = authority,
-                ResponseType = OpenIdConnectResponseType.CodeIdToken,
+                o.ClientId = ClientId;
+                o.ClientSecret = ClientSecret; // for code flow
+                o.Authority = Authority;
+                o.ResponseType = OpenIdConnectResponseType.CodeIdToken;
+                o.SignedOutRedirectUri = "/signed-out";
                 // GetClaimsFromUserInfoEndpoint = true,
-                Events = new OpenIdConnectEvents()
+                o.Events = new OpenIdConnectEvents()
                 {
                     OnAuthorizationCodeReceived = async context =>
                     {
                         var request = context.HttpContext.Request;
                         var currentUri = UriHelper.BuildAbsolute(request.Scheme, request.Host, request.PathBase, request.Path);
-                        var credential = new ClientCredential(clientId, clientSecret);                                 
-                        var authContext = new AuthenticationContext(authority, AuthPropertiesTokenCache.ForCodeRedemption(context.Properties));
+                        var credential = new ClientCredential(ClientId, ClientSecret);
+                        var authContext = new AuthenticationContext(Authority, AuthPropertiesTokenCache.ForCodeRedemption(context.Properties));
 
                         var result = await authContext.AcquireTokenByAuthorizationCodeAsync(
-                            context.ProtocolMessage.Code, new Uri(currentUri), credential, resource);
+                            context.ProtocolMessage.Code, new Uri(currentUri), credential, Resource);
 
-                        context.HandleCodeRedemption();
+                        context.HandleCodeRedemption(result.AccessToken, result.IdToken);
                     }
-                }
+                };
             });
+        }
+
+        public void Configure(IApplicationBuilder app)
+        {
+            app.UseDeveloperExceptionPage();
+
+            app.UseAuthentication();
 
             app.Run(async context =>
             {
-                if (context.Request.Path.Equals("/signout"))
+                if (context.Request.Path.Equals("/signin"))
                 {
-                    await context.Authentication.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-                    context.Response.ContentType = "text/html";
-                    await context.Response.WriteAsync($"<html><body>Signing out {context.User.Identity.Name}<br>{Environment.NewLine}");
-                    await context.Response.WriteAsync("<a href=\"/\">Sign In</a>");
-                    await context.Response.WriteAsync($"</body></html>");
-                    return;
-                }
+                    if (context.User.Identities.Any(identity => identity.IsAuthenticated))
+                    {
+                        // User has already signed in
+                        context.Response.Redirect("/");
+                        return;
+                    }
 
-                if (!context.User.Identities.Any(identity => identity.IsAuthenticated))
+                    await context.ChallengeAsync(new AuthenticationProperties { RedirectUri = "/" });
+                }
+                else if (context.Request.Path.Equals("/signout"))
                 {
-                    await context.Authentication.ChallengeAsync(OpenIdConnectDefaults.AuthenticationScheme, new AuthenticationProperties { RedirectUri = "/" });
-                    return;
+                    await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+                    await WriteHtmlAsync(context.Response,
+                        async response =>
+                        {
+                            await response.WriteAsync($"<h1>Signed out locally: {HtmlEncode(context.User.Identity.Name)}</h1>");
+                            await response.WriteAsync("<a class=\"btn btn-primary\" href=\"/\">Sign In</a>");
+                        });
                 }
-
-                context.Response.ContentType = "text/html";
-                await context.Response.WriteAsync($"<html><body>Hello Authenticated User {context.User.Identity.Name}<br>{Environment.NewLine}");
-                await context.Response.WriteAsync("Claims:<br>" + Environment.NewLine);
-                foreach (var claim in context.User.Claims)
+                else if (context.Request.Path.Equals("/signout-remote"))
                 {
-                    await context.Response.WriteAsync($"{claim.Type}: {claim.Value}<br>{Environment.NewLine}");
+                    await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+                    await context.SignOutAsync(OpenIdConnectDefaults.AuthenticationScheme);
                 }
-
-                await context.Response.WriteAsync("Tokens:<br>" + Environment.NewLine);
-                try
+                else if (context.Request.Path.Equals("/signed-out"))
                 {
-                    // Use ADAL to get the right token
-                    var authContext = new AuthenticationContext(authority, AuthPropertiesTokenCache.ForApiCalls(context, CookieAuthenticationDefaults.AuthenticationScheme));
-                    var credential = new ClientCredential(clientId, clientSecret);
-                    string userObjectID = context.User.FindFirst("http://schemas.microsoft.com/identity/claims/objectidentifier").Value;
-                    var result = await authContext.AcquireTokenSilentAsync(resource, credential, new UserIdentifier(userObjectID, UserIdentifierType.UniqueId));
-
-                    await context.Response.WriteAsync($"access_token: {result.AccessToken}<br>{Environment.NewLine}");
+                    await WriteHtmlAsync(context.Response, 
+                        async response =>
+                        {
+                            await response.WriteAsync($"<h1>You have been signed out.</h1>");
+                            await response.WriteAsync("<a class=\"btn btn-primary\" href=\"/signin\">Sign In</a>");
+                        });
                 }
-                catch (Exception ex)
+                else if (context.Request.Path.Equals("/remote-signedout"))
                 {
-                    await context.Response.WriteAsync($"AquireToken error: {ex.Message}<br>{Environment.NewLine}");
+                    await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+                    await WriteHtmlAsync(context.Response,
+                        async response =>
+                        {
+                            await response.WriteAsync($"<h1>Signed out remotely: {HtmlEncode(context.User.Identity.Name)}</h1>");
+                            await response.WriteAsync("<a class=\"btn btn-primary\" href=\"/\">Sign In</a>");
+                        });
                 }
+                else
+                {
+                    if (!context.User.Identities.Any(identity => identity.IsAuthenticated))
+                    {
+                        await context.ChallengeAsync(new AuthenticationProperties { RedirectUri = "/" });
+                        return;
+                    }
 
-                await context.Response.WriteAsync("<a href=\"/signout\">Sign Out</a>");
-                await context.Response.WriteAsync($"</body></html>");
+                    await WriteHtmlAsync(context.Response, async response =>
+                    {
+                        await response.WriteAsync($"<h1>Hello Authenticated User {HtmlEncode(context.User.Identity.Name)}</h1>");
+                        await response.WriteAsync("<a class=\"btn btn-default\" href=\"/signout\">Sign Out Locally</a>");
+                        await response.WriteAsync("<a class=\"btn btn-default\" href=\"/signout-remote\">Sign Out Remotely</a>");
+
+                        await response.WriteAsync("<h2>Claims:</h2>");
+                        await WriteTableHeader(response, new string[] { "Claim Type", "Value" }, context.User.Claims.Select(c => new string[] { c.Type, c.Value }));
+
+                        await response.WriteAsync("<h2>Tokens:</h2>");
+                        try
+                        {
+                            // Use ADAL to get the right token
+                            var authContext = new AuthenticationContext(Authority, AuthPropertiesTokenCache.ForApiCalls(context, CookieAuthenticationDefaults.AuthenticationScheme));
+                            var credential = new ClientCredential(ClientId, ClientSecret);
+                            string userObjectID = context.User.FindFirst("http://schemas.microsoft.com/identity/claims/objectidentifier").Value;
+                            var result = await authContext.AcquireTokenSilentAsync(Resource, credential, new UserIdentifier(userObjectID, UserIdentifierType.UniqueId));
+
+                            await response.WriteAsync($"<h3>access_token</h3><code>{HtmlEncode(result.AccessToken)}</code><br>");
+                        }
+                        catch (Exception ex)
+                        {
+                            await response.WriteAsync($"AquireToken error: {ex.Message}");
+                        }
+                    });
+                }
             });
         }
+
+        private static async Task WriteHtmlAsync(HttpResponse response, Func<HttpResponse, Task> writeContent)
+        {
+            var bootstrap = "<link rel=\"stylesheet\" href=\"https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css\" integrity=\"sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u\" crossorigin=\"anonymous\">";
+
+            response.ContentType = "text/html";
+            await response.WriteAsync($"<html><head>{bootstrap}</head><body><div class=\"container\">");
+            await writeContent(response);
+            await response.WriteAsync("</div></body></html>");
+        }
+
+        private static async Task WriteTableHeader(HttpResponse response, IEnumerable<string> columns, IEnumerable<IEnumerable<string>> data)
+        {
+            await response.WriteAsync("<table class=\"table table-condensed\">");
+            await response.WriteAsync("<tr>");
+            foreach (var column in columns)
+            {
+                await response.WriteAsync($"<th>{HtmlEncode(column)}</th>");
+            }
+            await response.WriteAsync("</tr>");
+            foreach (var row in data)
+            {
+                await response.WriteAsync("<tr>");
+                foreach (var column in row)
+                {
+                    await response.WriteAsync($"<td>{HtmlEncode(column)}</td>");
+                }
+                await response.WriteAsync("</tr>");
+            }
+            await response.WriteAsync("</table>");
+        }
+
+        private static string HtmlEncode(string content) =>
+            string.IsNullOrEmpty(content) ? string.Empty : HtmlEncoder.Default.Encode(content);
     }
 }
 

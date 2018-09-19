@@ -3,7 +3,6 @@
 
 using System;
 using Microsoft.AspNetCore.Authentication.Google;
-using Microsoft.Extensions.Options;
 
 namespace Microsoft.AspNetCore.Builder
 {
@@ -13,38 +12,26 @@ namespace Microsoft.AspNetCore.Builder
     public static class GoogleAppBuilderExtensions
     {
         /// <summary>
-        /// Adds the <see cref="GoogleMiddleware"/> middleware to the specified <see cref="IApplicationBuilder"/>, which enables Google authentication capabilities.
+        /// UseGoogleAuthentication is obsolete. Configure Google authentication with AddAuthentication().AddGoogle in ConfigureServices. See https://go.microsoft.com/fwlink/?linkid=845470 for more details.
         /// </summary>
-        /// <param name="app">The <see cref="IApplicationBuilder"/> to add the middleware to.</param>
+        /// <param name="app">The <see cref="IApplicationBuilder"/> to add the handler to.</param>
         /// <returns>A reference to this instance after the operation has completed.</returns>
+        [Obsolete("UseGoogleAuthentication is obsolete. Configure Google authentication with AddAuthentication().AddGoogle in ConfigureServices. See https://go.microsoft.com/fwlink/?linkid=845470 for more details.", error: true)]
         public static IApplicationBuilder UseGoogleAuthentication(this IApplicationBuilder app)
         {
-            if (app == null)
-            {
-                throw new ArgumentNullException(nameof(app));
-            }
-
-            return app.UseMiddleware<GoogleMiddleware>();
+            throw new NotSupportedException("This method is no longer supported, see https://go.microsoft.com/fwlink/?linkid=845470");
         }
 
         /// <summary>
-        /// Adds the <see cref="GoogleMiddleware"/> middleware to the specified <see cref="IApplicationBuilder"/>, which enables Google authentication capabilities.
+        /// UseGoogleAuthentication is obsolete. Configure Google authentication with AddAuthentication().AddGoogle in ConfigureServices. See https://go.microsoft.com/fwlink/?linkid=845470 for more details.
         /// </summary>
-        /// <param name="app">The <see cref="IApplicationBuilder"/> to add the middleware to.</param>
-        /// <param name="options">A <see cref="GoogleOptions"/> that specifies options for the middleware.</param>
+        /// <param name="app">The <see cref="IApplicationBuilder"/> to add the handler to.</param>
+        /// <param name="options">A <see cref="GoogleOptions"/> that specifies options for the handler.</param>
         /// <returns>A reference to this instance after the operation has completed.</returns>
+        [Obsolete("UseGoogleAuthentication is obsolete. Configure Google authentication with AddAuthentication().AddGoogle in ConfigureServices. See https://go.microsoft.com/fwlink/?linkid=845470 for more details.", error: true)]
         public static IApplicationBuilder UseGoogleAuthentication(this IApplicationBuilder app, GoogleOptions options)
         {
-            if (app == null)
-            {
-                throw new ArgumentNullException(nameof(app));
-            }
-            if (options == null)
-            {
-                throw new ArgumentNullException(nameof(options));
-            }
-
-            return app.UseMiddleware<GoogleMiddleware>(Options.Create(options));
+            throw new NotSupportedException("This method is no longer supported, see https://go.microsoft.com/fwlink/?linkid=845470");
         }
     }
 }
